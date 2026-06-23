@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
-import { Header } from './components/Header.jsx';
-import { MessageList } from './components/MessageList.jsx';
-import { ChatInput } from './components/ChatInput.jsx';
-import { ErrorBanner } from './components/ErrorBanner.jsx';
-import { LocationChips } from './components/LocationChips.jsx';
-import { MapPanel } from './components/MapPanel.jsx';
-import { useChat } from './hooks/useChat.js';
-import { extractPlaces, geocodePlaces, calculateDistance } from './lib/places.js';
-import { config } from './config.js';
+import { useEffect, useRef, useState } from "react";
+import { Header } from "./components/Header.jsx";
+import { MessageList } from "./components/MessageList.jsx";
+import { ChatInput } from "./components/ChatInput.jsx";
+import { ErrorBanner } from "./components/ErrorBanner.jsx";
+import { LocationChips } from "./components/LocationChips.jsx";
+import { MapPanel } from "./components/MapPanel.jsx";
+import { useChat } from "./hooks/useChat.js";
+import {
+  extractPlaces,
+  geocodePlaces,
+  calculateDistance,
+} from "./lib/places.js";
+import { config } from "./config.js";
 
 const SAMPLE_PROMPTS = [
   "I'm in Uttara Sector 4, Dhaka. Plan a 1-hour quiet reading itinerary within 1 km walking distance — calm cafés only. Include travel time, walking distance, and why each place suits reading.",
@@ -28,27 +32,38 @@ export default function App() {
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, isLoading]);
 
   // Extract and geocode places when new AI message arrives
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== 'model' || lastMessage.pending) return;
+    if (!lastMessage || lastMessage.role !== "model" || lastMessage.pending)
+      return;
 
-    console.log('[App] Extracting places from message:', lastMessage.text.substring(0, 100));
-    const extractedPlaces = extractPlaces(lastMessage.text, lastMessage.grounding);
-    console.log('[App] Extracted places:', extractedPlaces);
-    
+    console.log(
+      "[App] Extracting places from message:",
+      lastMessage.text.substring(0, 100)
+    );
+    const extractedPlaces = extractPlaces(
+      lastMessage.text,
+      lastMessage.grounding
+    );
+    console.log("[App] Extracted places:", extractedPlaces);
+
     if (extractedPlaces.length > 0) {
-      console.log('[App] Starting geocoding for', extractedPlaces.length, 'places');
+      console.log(
+        "[App] Starting geocoding for",
+        extractedPlaces.length,
+        "places"
+      );
       setIsGeocodingPlaces(true);
       setShowMap(true);
-      console.log('[App] showMap set to true');
-      
+      console.log("[App] showMap set to true");
+
       geocodePlaces(extractedPlaces, location)
         .then((geocoded) => {
-          console.log('[App] Geocoded places:', geocoded);
+          console.log("[App] Geocoded places:", geocoded);
           // Add distance from user location
           const withDistance = geocoded.map((place) => {
             if (location && place.latitude && place.longitude) {
@@ -62,16 +77,16 @@ export default function App() {
             return place;
           });
           setPlaces(withDistance);
-          console.log('[App] Places set, count:', withDistance.length);
+          console.log("[App] Places set, count:", withDistance.length);
           setIsGeocodingPlaces(false);
         })
         .catch((err) => {
-          console.error('Geocoding failed:', err);
+          console.error("Geocoding failed:", err);
           setPlaces(extractedPlaces);
           setIsGeocodingPlaces(false);
         });
     } else {
-      console.log('[App] No places extracted from response');
+      console.log("[App] No places extracted from response");
     }
   }, [messages, location]);
 
@@ -82,25 +97,30 @@ export default function App() {
   };
 
   const handleMapClose = () => {
-    console.log('[App] Map hide button clicked - setting showMap to false');
+    console.log("[App] Map hide button clicked - setting showMap to false");
     setShowMap(false);
     setSelectedPlace(null);
   };
 
   return (
-    <div className={`app-shell ${showMap ? 'has-map' : ''}`}>
+    <div className={`app-shell ${showMap ? "has-map" : ""}`}>
       <Header onReset={reset} hasMessages={messages.length > 0} />
 
       <div className="chat-with-map">
         <main className="chat-main" ref={listRef}>
           {messages.length === 0 ? (
-            <EmptyState prompts={SAMPLE_PROMPTS} onPick={handleSubmit} disabled={isLoading} />
+            <EmptyState
+              prompts={SAMPLE_PROMPTS}
+              onPick={handleSubmit}
+              disabled={isLoading}
+            />
           ) : (
             <MessageList messages={messages} />
           )}
-          
-          {/* Floating button to show map when hidden */}
-          {!showMap && places.length > 0 && (
+        </main>
+
+        {/* Floating button to show map when hidden */}
+        {/* {!showMap && places.length > 0 && (
             <button 
               className="show-map-btn"
               onClick={() => setShowMap(true)}
@@ -108,8 +128,7 @@ export default function App() {
             >
               ▶ Show Map ({places.length})
             </button>
-          )}
-        </main>
+          )} */}
 
         {showMap && (
           <MapPanel
@@ -125,20 +144,36 @@ export default function App() {
       <ErrorBanner message={error} onDismiss={() => null} />
 
       <footer className="chat-footer">
-        <LocationChips value={location} onChange={setLocation} disabled={isLoading} />
+        <LocationChips
+          value={location}
+          onChange={setLocation}
+          disabled={isLoading}
+        />
         <ChatInput
           onSubmit={handleSubmit}
           onCancel={cancel}
           isLoading={isLoading}
           disabled={false}
         />
+        {!showMap && places.length > 0 && (
+          <button
+            className="show-map-btn"
+            onClick={() => setShowMap(true)}
+            title="Show map panel"
+            type="button"
+          >
+            ▶ Show Map ({places.length})
+          </button>
+        )}
         <p className="footer-note">
-          Grounded by Google Maps via Gemini. Responses may include place data, citations, and
-          model assumptions. Verify time-sensitive info.
+          Grounded by Google Maps via Gemini. Responses may include place data,
+          citations, and model assumptions. Verify time-sensitive info.
           {location
-            ? ` Using location: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.`
-            : ' No location context — pick one above for nearby-grounded results.'}
-          {isGeocodingPlaces && ' • Loading places on map...'}
+            ? ` Using location: ${location.latitude.toFixed(
+                4
+              )}, ${location.longitude.toFixed(4)}.`
+            : " No location context — pick one above for nearby-grounded results."}
+          {isGeocodingPlaces && " • Loading places on map..."}
         </p>
       </footer>
     </div>
