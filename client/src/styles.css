@@ -218,7 +218,7 @@ button {
 @media (min-width: 768px) {
   .show-map-btn {
     bottom: 145px;
-    right: 0px;
+    /* right: 0px; */
   }
 }
 
