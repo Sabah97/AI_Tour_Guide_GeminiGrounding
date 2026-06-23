@@ -170,7 +170,18 @@ app.post('/api/chat', async (req, res) => {
   const err = validatePayload(req.body);
   if (err) return res.status(400).json({ error: err });
 
-  const { messages, systemInstruction, location } = req.body;
+  const { messages, location } = req.body;
+  
+  // Build system instruction with location context
+  let systemInstruction = 
+    'Always respond in English. Provide place names and addresses in English (Latin script) only. Avoid using non-Latin characters.\n';
+  
+  if (location && location.latitude && location.longitude) {
+    systemInstruction += `\nIMPORTANT: The user's current location is at coordinates (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}). `;
+    systemInstruction += `When they ask "where am I" or similar questions, use Google Maps to identify nearby landmarks, areas, or cities near these coordinates and tell them their approximate location. `;
+    systemInstruction += `Use this location context for all location-based queries and nearby place recommendations.`;
+  }
+  
   const contents = toGeminiContents(messages);
 
   // Build Maps tool config. When location provided, attach retrievalConfig

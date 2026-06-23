@@ -35,13 +35,35 @@ export function LocationChips({ value, onChange, disabled }) {
     setShowCustom(false);
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const lat = position.coords.latitude;
         const lon = position.coords.longitude;
+        
+        // Try to get address name using reverse geocoding
+        let locationLabel = `Your Location (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`
+          );
+          if (response.ok) {
+            const data = await response.json();
+            // Extract city/area name
+            const area = data.address?.neighbourhood || 
+                        data.address?.suburb || 
+                        data.address?.city || 
+                        data.address?.state || 
+                        'Your Location';
+            locationLabel = `${area} (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+          }
+        } catch (err) {
+          // Fallback to coordinates only if reverse geocoding fails
+          console.warn('Reverse geocoding failed:', err);
+        }
+        
         onChange({
           latitude: lat,
           longitude: lon,
-          label: `Your Location (${lat.toFixed(4)}, ${lon.toFixed(4)})`,
+          label: locationLabel,
         });
         setGettingLocation(false);
       },
