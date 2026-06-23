@@ -174,26 +174,48 @@ app.post('/api/chat', async (req, res) => {
   
   // Build system instruction with location context
   let systemInstruction = 
-    'Always respond in English. Provide place names and addresses in English (Latin script) only. Avoid using non-Latin characters.\n';
+    `CRITICAL INSTRUCTION: You MUST respond EXCLUSIVELY in English language using ONLY Latin alphabet characters (A-Z, a-z, 0-9).
+
+STRICTLY FORBIDDEN:
+- Bengali/Bangla script (বাংলা)
+- Any non-Latin characters or scripts
+- Transliterated Bengali words
+
+REQUIRED FOR ALL PLACE NAMES AND ADDRESSES:
+- Use English names only (e.g., "Uttara Sector 4 Park" NOT "উত্তরা সেক্টর ৪ পার্ক")
+- If you receive data in Bengali from Google Maps, you MUST translate/transliterate it to English
+- Write addresses using English words and numbers only
+- Use standard English transliteration for Bangladeshi place names
+
+Example:
+BAD: উত্তরা সেক্টর ৪ পার্ক
+GOOD: Uttara Sector 4 Park
+
+BAD: ঢাকা ১২৩০
+GOOD: Dhaka 1230
+
+If the user writes in Bengali/Bangla, respond in English. Never echo back Bengali text.\n`;
   
   if (location && location.latitude && location.longitude) {
-    systemInstruction += `\nIMPORTANT: The user's current location is at coordinates (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}). `;
-    systemInstruction += `When they ask "where am I" or similar questions, use Google Maps to identify nearby landmarks, areas, or cities near these coordinates and tell them their approximate location. `;
+    systemInstruction += `\nThe user's current location is at coordinates (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}). `;
+    systemInstruction += `When they ask "where am I" or similar questions, use Google Maps to identify nearby landmarks, areas, or cities near these coordinates and tell them their approximate location IN ENGLISH. `;
     systemInstruction += `Use this location context for all location-based queries and nearby place recommendations.\n`;
   }
 
   // Add structured output format for place recommendations
-  systemInstruction += `\nWhen the user asks for place recommendations (cafes, restaurants, tourist spots, etc.), follow this format:
+  systemInstruction += `\nWhen the user asks for place recommendations (cafes, restaurants, tourist spots, parks, etc.), follow this format:
 1. Provide EXACTLY 3-4 places (no more, no less)
 2. For each place, use this structure:
-   ### [Place Name]
-   **Address:** [Full address]
+   ### [Place Name in English - MUST use Latin characters only]
+   **Address:** [Full address in English using Latin characters only - translate from Bengali if needed]
    **Distance:** [Distance from user's location]
    **Why it's suitable:** [Brief explanation matching their criteria]
    **Highlights:** [Key features, amenities, or unique aspects]
 
 3. Order places from nearest to farthest from the user's location
-4. Be concise - maximum 2-3 sentences per section`;
+4. Be concise - maximum 2-3 sentences per section
+5. CRITICAL: ALL text including place names and addresses MUST be in English (Latin script) - absolutely NO Bengali/Bangla characters anywhere
+6. If Google Maps returns Bengali text, translate it to English before including in your response`;
   
   const contents = toGeminiContents(messages);
 
@@ -294,7 +316,15 @@ Keep it concise but informative (3-4 short paragraphs maximum).`;
         systemInstruction: {
           parts: [
             {
-              text: 'Always respond in English. Provide factual, interesting information about places. Use Google Maps data when available.',
+              text: `CRITICAL: You MUST respond EXCLUSIVELY in English using ONLY Latin alphabet (A-Z, a-z, 0-9). 
+              
+FORBIDDEN: Bengali/Bangla script (বাংলা) or any non-Latin characters.
+
+If you receive Bengali text from Google Maps, translate it to English before using it.
+
+Provide factual, interesting information about places using ONLY English. Use Google Maps data when available but translate any Bengali text to English.
+
+Example: "উত্তরা পার্ক" should be written as "Uttara Park"`,
             },
           ],
         },
@@ -318,6 +348,98 @@ Keep it concise but informative (3-4 short paragraphs maximum).`;
     const status = e?.status || 500;
     res.status(status >= 400 && status < 600 ? status : 500).json({
       error: e?.message || 'failed to fetch place details',
+      code: e?.code || null,
+    });
+  }
+});
+
+// New endpoint to get coordinates from Google Maps place_id
+app.post('/api/geocode-place-id', async (req, res) => {
+  const { placeId, placeName } = req.body;
+  
+  if (!placeId) {
+    return res.status(400).json({ error: 'placeId is required' });
+  }
+
+  console.log(`[geocode-place-id] Request for place="${placeName}" placeId="${placeId}"`);
+
+  try {
+    // Clean up place_id (remove 'places/' prefix if present)
+    const cleanPlaceId = placeId.replace('places/', '');
+    
+    // Use Gemini with Google Maps to get place information
+    // We'll ask for the place by name and use Maps tool to get coordinates
+    const prompt = `What are the GPS coordinates of "${placeName}"? Provide ONLY the coordinates in this exact format: latitude,longitude (for example: 23.7925,90.4078)`;
+
+    console.log(`[geocode-place-id] Asking Gemini for coordinates of "${placeName}"`);
+
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }],
+        },
+      ],
+      config: {
+        tools: [{ googleMaps: {} }],
+        systemInstruction: {
+          parts: [
+            {
+              text: `CRITICAL: You MUST respond EXCLUSIVELY in English using ONLY Latin alphabet (A-Z, a-z, 0-9). 
+
+FORBIDDEN: Bengali/Bangla script or any non-Latin characters.
+
+You must provide ONLY coordinates in the format: latitude,longitude
+
+Use Google Maps data. Do not include any other text or explanation. 
+
+If you receive Bengali place names, still provide coordinates but use English in any text.`,
+            },
+          ],
+        },
+      },
+    });
+
+    const text = response.text ?? '';
+    console.log(`[geocode-place-id] Gemini response: "${text}"`);
+    
+    // Try to extract coordinates from response - be flexible with format
+    const coordsMatch = text.match(/(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/);
+    
+    if (coordsMatch) {
+      const latitude = parseFloat(coordsMatch[1]);
+      const longitude = parseFloat(coordsMatch[2]);
+      
+      // Validate coordinates are reasonable
+      if (latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180) {
+        console.log(`[geocode-place-id] ✓ Success: ${latitude}, ${longitude}`);
+        
+        res.json({
+          latitude,
+          longitude,
+          placeId: cleanPlaceId,
+          placeName,
+        });
+      } else {
+        console.warn(`[geocode-place-id] ✗ Invalid coordinates: ${latitude}, ${longitude}`);
+        res.status(404).json({ 
+          error: 'Invalid coordinates received',
+          text 
+        });
+      }
+    } else {
+      console.warn(`[geocode-place-id] ✗ Could not parse coordinates from: "${text}"`);
+      res.status(404).json({ 
+        error: 'Could not extract coordinates from response',
+        text 
+      });
+    }
+  } catch (e) {
+    console.error('[geocode-place-id] ✗ Error:', e);
+    const status = e?.status || 500;
+    res.status(status >= 400 && status < 600 ? status : 500).json({
+      error: e?.message || 'failed to geocode place_id',
       code: e?.code || null,
     });
   }

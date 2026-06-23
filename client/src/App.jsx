@@ -82,6 +82,7 @@ export default function App() {
   };
 
   const handleMapClose = () => {
+    console.log('[App] Map hide button clicked - setting showMap to false');
     setShowMap(false);
     setSelectedPlace(null);
   };
@@ -96,6 +97,17 @@ export default function App() {
             <EmptyState prompts={SAMPLE_PROMPTS} onPick={handleSubmit} disabled={isLoading} />
           ) : (
             <MessageList messages={messages} />
+          )}
+          
+          {/* Floating button to show map when hidden */}
+          {!showMap && places.length > 0 && (
+            <button 
+              className="show-map-btn"
+              onClick={() => setShowMap(true)}
+              title="Show map panel"
+            >
+              ▶ Show Map ({places.length})
+            </button>
           )}
         </main>
 
