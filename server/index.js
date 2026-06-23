@@ -179,8 +179,21 @@ app.post('/api/chat', async (req, res) => {
   if (location && location.latitude && location.longitude) {
     systemInstruction += `\nIMPORTANT: The user's current location is at coordinates (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}). `;
     systemInstruction += `When they ask "where am I" or similar questions, use Google Maps to identify nearby landmarks, areas, or cities near these coordinates and tell them their approximate location. `;
-    systemInstruction += `Use this location context for all location-based queries and nearby place recommendations.`;
+    systemInstruction += `Use this location context for all location-based queries and nearby place recommendations.\n`;
   }
+
+  // Add structured output format for place recommendations
+  systemInstruction += `\nWhen the user asks for place recommendations (cafes, restaurants, tourist spots, etc.), follow this format:
+1. Provide EXACTLY 3-4 places (no more, no less)
+2. For each place, use this structure:
+   ### [Place Name]
+   **Address:** [Full address]
+   **Distance:** [Distance from user's location]
+   **Why it's suitable:** [Brief explanation matching their criteria]
+   **Highlights:** [Key features, amenities, or unique aspects]
+
+3. Order places from nearest to farthest from the user's location
+4. Be concise - maximum 2-3 sentences per section`;
   
   const contents = toGeminiContents(messages);
 
@@ -232,6 +245,79 @@ app.post('/api/chat', async (req, res) => {
     const status = e?.status || 500;
     res.status(status >= 400 && status < 600 ? status : 500).json({
       error: e?.message || 'gemini request failed',
+      code: e?.code || null,
+    });
+  }
+});
+
+app.post('/api/place-details', async (req, res) => {
+  const { placeName, placeId, latitude, longitude } = req.body;
+  
+  if (!placeName) {
+    return res.status(400).json({ error: 'placeName is required' });
+  }
+
+  // Build prompt to get place details
+  let prompt = `Tell me detailed information about "${placeName}". Include:
+- Interesting facts and unique highlights
+- Historical background (if applicable)
+- Notable features or attractions
+- Why it's worth visiting
+- Any cultural or local significance
+
+Keep it concise but informative (3-4 short paragraphs maximum).`;
+
+  if (latitude && longitude) {
+    prompt += ` This place is located at coordinates (${latitude.toFixed(4)}, ${longitude.toFixed(4)}).`;
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }],
+        },
+      ],
+      config: {
+        tools: [{ googleMaps: {} }],
+        ...(latitude && longitude
+          ? {
+              toolConfig: {
+                retrievalConfig: {
+                  latLng: { latitude, longitude },
+                },
+              },
+            }
+          : {}),
+        systemInstruction: {
+          parts: [
+            {
+              text: 'Always respond in English. Provide factual, interesting information about places. Use Google Maps data when available.',
+            },
+          ],
+        },
+      },
+    });
+
+    const text = response.text ?? '';
+    const grounding = extractGrounding(response);
+
+    if (NODE_ENV !== 'production') {
+      console.log(`[place-details] place=${placeName} textLen=${text.length}`);
+    }
+
+    res.json({
+      text,
+      grounding,
+      placeName,
+    });
+  } catch (e) {
+    console.error('[place-details] error', e);
+    const status = e?.status || 500;
+    res.status(status >= 400 && status < 600 ? status : 500).json({
+      error: e?.message || 'failed to fetch place details',
       code: e?.code || null,
     });
   }

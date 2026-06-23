@@ -4,7 +4,9 @@ import { MessageList } from './components/MessageList.jsx';
 import { ChatInput } from './components/ChatInput.jsx';
 import { ErrorBanner } from './components/ErrorBanner.jsx';
 import { LocationChips } from './components/LocationChips.jsx';
+import { MapPanel } from './components/MapPanel.jsx';
 import { useChat } from './hooks/useChat.js';
+import { extractPlaces, geocodePlaces, calculateDistance } from './lib/places.js';
 import { config } from './config.js';
 
 const SAMPLE_PROMPTS = [
@@ -17,6 +19,10 @@ export default function App() {
   const { messages, isLoading, error, send, cancel, reset } = useChat();
   const listRef = useRef(null);
   const [location, setLocation] = useState(null);
+  const [places, setPlaces] = useState([]);
+  const [selectedPlace, setSelectedPlace] = useState(null);
+  const [showMap, setShowMap] = useState(false);
+  const [isGeocodingPlaces, setIsGeocodingPlaces] = useState(false);
 
   // Auto-scroll on new content.
   useEffect(() => {
@@ -25,19 +31,84 @@ export default function App() {
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages, isLoading]);
 
+  // Extract and geocode places when new AI message arrives
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'model' || lastMessage.pending) return;
+
+    console.log('[App] Extracting places from message:', lastMessage.text.substring(0, 100));
+    const extractedPlaces = extractPlaces(lastMessage.text, lastMessage.grounding);
+    console.log('[App] Extracted places:', extractedPlaces);
+    
+    if (extractedPlaces.length > 0) {
+      console.log('[App] Starting geocoding for', extractedPlaces.length, 'places');
+      setIsGeocodingPlaces(true);
+      setShowMap(true);
+      console.log('[App] showMap set to true');
+      
+      geocodePlaces(extractedPlaces, location)
+        .then((geocoded) => {
+          console.log('[App] Geocoded places:', geocoded);
+          // Add distance from user location
+          const withDistance = geocoded.map((place) => {
+            if (location && place.latitude && place.longitude) {
+              place.distance = calculateDistance(
+                location.latitude,
+                location.longitude,
+                place.latitude,
+                place.longitude
+              );
+            }
+            return place;
+          });
+          setPlaces(withDistance);
+          console.log('[App] Places set, count:', withDistance.length);
+          setIsGeocodingPlaces(false);
+        })
+        .catch((err) => {
+          console.error('Geocoding failed:', err);
+          setPlaces(extractedPlaces);
+          setIsGeocodingPlaces(false);
+        });
+    } else {
+      console.log('[App] No places extracted from response');
+    }
+  }, [messages, location]);
+
   const handleSubmit = (text) => send(text, { location });
 
+  const handlePlaceClick = (place) => {
+    setSelectedPlace(place);
+  };
+
+  const handleMapClose = () => {
+    setShowMap(false);
+    setSelectedPlace(null);
+  };
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${showMap ? 'has-map' : ''}`}>
       <Header onReset={reset} hasMessages={messages.length > 0} />
 
-      <main className="chat-main" ref={listRef}>
-        {messages.length === 0 ? (
-          <EmptyState prompts={SAMPLE_PROMPTS} onPick={handleSubmit} disabled={isLoading} />
-        ) : (
-          <MessageList messages={messages} />
+      <div className="chat-with-map">
+        <main className="chat-main" ref={listRef}>
+          {messages.length === 0 ? (
+            <EmptyState prompts={SAMPLE_PROMPTS} onPick={handleSubmit} disabled={isLoading} />
+          ) : (
+            <MessageList messages={messages} />
+          )}
+        </main>
+
+        {showMap && (
+          <MapPanel
+            places={places}
+            userLocation={location}
+            onPlaceClick={handlePlaceClick}
+            selectedPlace={selectedPlace}
+            onClose={handleMapClose}
+          />
         )}
-      </main>
+      </div>
 
       <ErrorBanner message={error} onDismiss={() => null} />
 
@@ -55,6 +126,7 @@ export default function App() {
           {location
             ? ` Using location: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}.`
             : ' No location context — pick one above for nearby-grounded results.'}
+          {isGeocodingPlaces && ' • Loading places on map...'}
         </p>
       </footer>
     </div>

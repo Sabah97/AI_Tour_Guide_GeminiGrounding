@@ -15,6 +15,8 @@ export default defineConfig(({ mode }) => {
           target: API_BASE,
           changeOrigin: true,
           secure: false,
+          timeout: 120000, // 2 minutes for Gemini responses
+          proxyTimeout: 120000,
           // Retry logic for proxy
           configure: (proxy, options) => {
             proxy.on('error', (err, req, res) => {
@@ -32,11 +34,8 @@ export default defineConfig(({ mode }) => {
               }
             });
             proxy.on('proxyReq', (proxyReq, req, res) => {
-              // Add timeout to prevent hanging requests
-              proxyReq.setTimeout(30000, () => {
-                console.log('[vite] Proxy request timeout');
-                proxyReq.abort();
-              });
+              // Increase timeout for Gemini API calls (can be slow)
+              proxyReq.setTimeout(120000); // 2 minutes
             });
           },
         },
